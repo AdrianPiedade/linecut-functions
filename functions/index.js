@@ -27,7 +27,7 @@ async function sendSilentDataNotification(userId, dataPayload) {
       tokens: validTokens,
     };
 
-    const response = await admin.messaging().sendMulticast(message);
+    const response = await admin.messaging().sendEachForMulticast(message);
     logger.log(`Notificação de dados enviada para ${userId}: ${response.successCount} sucesso(s).`);
   } catch (error) {
     logger.error(`Erro em sendSilentDataNotification para ${userId}:`, error);
@@ -61,7 +61,9 @@ async function sendAndSaveNotification(userId, title, body, icon = "bi-info-circ
     await notifRef.set(notificationData);
 
     const countRef = admin.database().ref(`/notifications/${userId}/unread_count`);
-    await countRef.transaction((currentCount) => (currentCount || 0) + 1);
+    
+    const transactionResult = await countRef.transaction((currentCount) => (currentCount || 0) + 1);
+    const newUnreadCount = transactionResult.snapshot.val();
 
     const userTokensSnapshot = await admin.database()
         .ref(`/empresas/${userId}/fcm_tokens`).get();
@@ -80,6 +82,10 @@ async function sendAndSaveNotification(userId, title, body, icon = "bi-info-circ
 
     const message = {
       notification: {title, body},
+      data: {
+        type: "NEW_NOTIFICATION",
+        unreadCount: String(newUnreadCount)
+      },
       webpush: {
         notification: {
           icon: "/static/dashboard/images/logo_linecut_title.png",
@@ -89,7 +95,7 @@ async function sendAndSaveNotification(userId, title, body, icon = "bi-info-circ
       tokens: validTokens,
     };
 
-    const response = await admin.messaging().sendMulticast(message);
+    const response = await admin.messaging().sendEachForMulticast(message);
     logger.log(`Notificações enviadas para ${userId}: ${response.successCount} sucesso(s).`);
   } catch (error) {
     logger.error(`Erro em sendAndSaveNotification para ${userId}:`, error);
