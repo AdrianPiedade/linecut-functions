@@ -5,6 +5,35 @@ const admin = require("firebase-admin");
 
 admin.initializeApp();
 
+async function sendSilentDataNotification(userId, dataPayload) {
+  try {
+    const userTokensSnapshot = await admin.database()
+        .ref(`/empresas/${userId}/fcm_tokens`).get();
+    if (!userTokensSnapshot.exists()) {
+      logger.log(`Usuário ${userId} não possui tokens FCM.`);
+      return;
+    }
+
+    const tokensMap = userTokensSnapshot.val();
+    const validTokens = Object.keys(tokensMap);
+
+    if (validTokens.length === 0) {
+      logger.log(`Nenhum token FCM válido para ${userId}.`);
+      return;
+    }
+
+    const message = {
+      data: dataPayload,
+      tokens: validTokens,
+    };
+
+    const response = await admin.messaging().sendMulticast(message);
+    logger.log(`Notificação de dados enviada para ${userId}: ${response.successCount} sucesso(s).`);
+  } catch (error) {
+    logger.error(`Erro em sendSilentDataNotification para ${userId}:`, error);
+  }
+}
+
 async function sendAndSaveNotification(userId, title, body, icon = "bi-info-circle") {
   try {
     const saoPauloTimezone = "America/Sao_Paulo";
@@ -66,6 +95,27 @@ async function sendAndSaveNotification(userId, title, body, icon = "bi-info-circ
     logger.error(`Erro em sendAndSaveNotification para ${userId}:`, error);
   }
 }
+
+exports.onNewOrderCreated = onValueCreated(
+    "/pedidos_por_lanchonete/{lanchoneteId}/{orderId}",
+    async (event) => {
+      const lanchoneteId = event.params.lanchoneteId;
+      const orderData = event.data.val();
+
+      if (!orderData || orderData.status !== "pendente") {
+        logger.log("Gatilho de novo pedido ignorado (não pendente ou dados nulos).");
+        return null;
+      }
+
+      const dataPayload = {
+        type: "NEW_ORDER",
+        orderId: event.params.orderId,
+      };
+
+      logger.log(`Novo pedido detectado para ${lanchoneteId}. Enviando notificação silenciosa.`);
+      return sendSilentDataNotification(lanchoneteId, dataPayload);
+    },
+);
 
 exports.onOrderCancelledByClient = onValueUpdated(
     "/pedidos_por_lanchonete/{lanchoneteId}/{orderId}",
